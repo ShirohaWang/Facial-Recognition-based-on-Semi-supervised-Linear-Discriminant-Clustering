@@ -1,0 +1,174 @@
+clear; clc;
+tic;
+eps=1e-10;
+% 1. 加载图像数据（基于ORL人脸库演示）（Load pictures data(The code here based on ORL dataset)
+reshaped_faces = [];
+for i = 1:40
+    for j = 1:10
+        %%图像路径和尺寸（Route and Size of your pictures)
+        a = imread(strcat('C:\Users\18023\Desktop\粤海小清华\homework\计导文件\人脸数据库\ORL56_46\orl', num2str(i), '_', num2str(j), '.bmp'));     
+        b = reshape(a, 2576, 1); 
+        b = double(b);       
+        reshaped_faces = [reshaped_faces, b]; 
+    end
+end
+
+% 2. 划分图像集合(Divide the pictures)
+train_index = [];    
+test_index = [];    
+Sk_index = [];     
+
+for k = 0:39
+    base = 10 * k;
+    train_index = [train_index, base + 1 : base + 6];
+    test_index = [test_index, base + 7 : base + 10];
+    Sk_index = [Sk_index, base + 1, base + 2];
+end
+
+% 3. 构建视觉词（Soft Assignment）(Building the 'Bag of words')
+patch_size = [8, 8];
+step = 4;
+all_patches = [];
+for i = train_index
+    img = reshape(reshaped_faces(:, i), 56, 46);
+    for x = 1:step:(56 - patch_size(1) + 1)
+        for y = 1:step:(46 - patch_size(2) + 1)
+            patch = img(x:x+7, y:y+7);
+            all_patches = [all_patches, patch(:)];
+        end
+    end
+end
+
+[coeff, score, ~, ~, explained] = pca(all_patches');
+num_dim = find(cumsum(explained) >= 95, 1);
+low_dim_patches = score(:, 1:num_dim);
+
+M = 200;
+[~, centers] = kmeans(low_dim_patches, M, 'MaxIter', 200, 'Replicates', 5);
+
+N = size(reshaped_faces, 2);
+n_matrix = zeros(N, M);
+sigma = 30;
+for i = 1:N
+    img = reshape(reshaped_faces(:, i), 56, 46);
+    patches = [];
+    for x = 1:step:(56 - patch_size(1) + 1)
+        for y = 1:step:(46 - patch_size(2) + 1)
+            patch = img(x:x+7, y:y+7);
+            patches = [patches; patch(:)'];
+        end
+    end
+    patch_features = (patches - mean(all_patches, 2)') * coeff(:, 1:num_dim);
+    D = pdist2(patch_features, centers);
+    W = exp(-D.^2 / (2 * sigma^2));
+    W = W ./ (sum(W, 2) + eps);
+    h = sum(W, 1);
+    n_matrix(i, :) = h / (sum(h) + eps); 
+end
+
+% 4. 初始化参数(Initialization)
+K = 40;
+%初始化Pz矩阵
+Pz = ones(K, 1) / K;
+theta = zeros(K, M);
+%初始化theta矩阵
+for k = 1:K
+    idx1 = Sk_index(2*k - 1);
+    idx2 = Sk_index(2*k);
+    theta(k, :) = (n_matrix(idx1, :) + n_matrix(idx2, :)) / 2;
+end
+%theta矩阵标准化
+theta = theta ./ (sum(theta, 2) + eps);
+Q = rand(length(train_index), K);
+Q = Q ./ (sum(Q, 2) + eps);
+
+%5. PLSA过程(The main process of Linear Discriminant Clustering)
+prev_Q = zeros(size(Q));
+for iter = 1:100
+    for t = 1:length(train_index)
+    i = train_index(t);
+    %Qik=P(zk)exp(sum(n(xi,wj)ln(theta kj)))
+    for k = 1:K
+        % 使用log-sum-exp技巧来避免数值问题
+        log_theta = log(theta(k, :) + eps);
+        %实验表现，视觉词袋构建出的数值，乘以10-100倍的时候更加类似文章的单词数
+        % （Experiments have shown that the value constructed by the visual wordbag is more similar to the number of words in an article when multiplied by 10-100 times）
+        log_likelihood = n_matrix(i, :) .* log_theta*100;
+        Q(t, k) = log(Pz(k)) + sum(log_likelihood);
+    end    
+    % 应用log-sum-exp技巧来避免数值溢出
+    max_Q = max(Q(t, :));
+    Q(t, :) = exp(Q(t, :) - max_Q);
+    Q(t, :) = Q(t, :) / (sum(Q(t, :)) + eps);
+    end
+    Pz = sum(Q, 1)' / sum(Q(:));  %根据Q求出新的P(zk)
+    for k = 1:K
+        for j = 1:M
+            val = 0;
+            for t = 1:length(train_index)
+                i = train_index(t);
+                val = val + Q(t, k) * n_matrix(i, j);
+            end
+            theta(k, j) = val;
+        end
+    end%根据Q求出新的theta
+    theta = theta ./ (sum(theta, 2) + eps);
+    Q_diff = max(abs(Q(:) - prev_Q(:)));
+    if Q_diff < 1e-6%检查是否收敛，否则继续迭代
+        break;
+    end
+    prev_Q = Q;
+end
+
+%6. Soft LDA + 最近邻识别(Facial Recognition)
+n_train = n_matrix(train_index, :);
+n_test = n_matrix(test_index, :);
+Q_train = Q;
+max_dim = 160;
+acc_curve = zeros(1, max_dim/10);
+for dim = 10:10:max_dim
+    X = n_train;
+    Q = Q_train;
+    Nk = sum(Q, 1);
+    D = diag(1 ./ (Nk + eps)); %(D=1/N1，1/N2......的对角矩阵）
+    %Sb计算
+    Sb = (X' * Q) * D * (Q' * X) / size(X,1);
+    % B^soft 对角权重矩阵（Diagonal weight matrix）
+    B_soft_diag = sum(Q, 2);  % 每个样本的 soft 权重总和
+    B_soft = diag(B_soft_diag); 
+    Sw = (X' * B_soft * X - X' * Q * D * Q' * X) / size(X,1);    % Sw计算
+    S = Sb - Sw;
+    [V, D_val] = eig(S);
+    [~, idx] = sort(diag(D_val), 'descend');
+    W = V(:, idx(1:dim));
+    % =投影和距离计算
+    proj_train = n_train * W;
+    proj_test = n_test * W;
+
+correct = 0;
+for i = 1:size(proj_test, 1)
+    dists = zeros(size(proj_train, 1), 1);
+    for j = 1:size(proj_train, 1)
+        dists(j) = norm(proj_train(j,:) - proj_test(i,:));
+    end
+    [~, min_idx] = min(dists);
+    pred_label = ceil(train_index(min_idx)/10);
+    real_label = ceil(test_index(i)/10);
+    if pred_label == real_label
+        correct = correct + 1;
+    end
+end
+    acc = correct / size(proj_test, 1);
+    fprintf('LDA维度/dimensions=%d, 准确率/accuracy=%.4f\n', dim, acc);
+    acc_curve(dim/10) = acc;
+end
+
+% 7. 正确率绘图(Accuracy visualization）
+figure;
+plot(10:10:max_dim, acc_curve, '-o');
+xlabel('LDA维度数/Dimensions of LDA');
+ylabel('识别准确率/Acurracy');
+title('分类性能/Performance');
+waitfor(gcf);
+toc;
+
