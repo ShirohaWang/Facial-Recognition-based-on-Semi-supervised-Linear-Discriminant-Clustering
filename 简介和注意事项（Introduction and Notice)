@@ -1,0 +1,6 @@
+本代码基本思想来自于《Semi-supervised Linear Discriminant Clustering》（Chien-Liang Liu，Wen-Hoar Hsaio, Chia-Hoang Lee, and Fu-Sheng Gou，《IEEE Transactions on Cybernetics》，( Volume: 44, Issue: 7, July 2014)）
+本代码主要是基于论文中提出的半监督学习方法，加上视觉词袋模型技术，将论文中在文本分类上的作用拓展到了人脸识别上，并且基于AR,ORL和Yale数据集进行了正确率测试
+本代码只是作者在大学机器学习课的一个报告，有很多的疏漏未尽之处，敬请谅解。
+The basic idea of this code is derived from "Semi-supervised Linear Discriminant Clustering" (Chien-Liang Liu, Wen-Hoar Hsaio, Chia-Hoang Lee, and Fu-Sheng Gou, IEEE Transactions on Cybernetics, ( Volume: 44, Issue: 7, July 2014)）
+This code is mainly based on the semi-supervised learning method proposed in the paper, coupled with the visual bag-of-words model technology, which extends the role of text classification in the paper to face recognition, and the accuracy test is carried out based on AR, ORL and Yale datasets
+This code is just a report of the author in a college machine learning class, and there are many omissions and unfinished points,thanks for your understanding.
